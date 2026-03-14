@@ -167,8 +167,8 @@ bot.on('messageCreate', async (message) => {
             } else if (i.customId === 'start_clone') {
                 collector.stop('started');
                 await i.update({ components: [] });
-                await message.channel.send("Starting cloning process in 5 seconds...");
-                await delay(5000);
+                await message.channel.send("Starting cloning process in 3 seconds...");
+                await delay(3000);
                 startCloningProcess(message, sourceGuild, targetGuild, options);
             }
         });
@@ -214,7 +214,7 @@ async function startCloningProcess(message, sourceGuild, targetGuild, opts) {
             try {
                 if (channel.id === logChannelId) continue;
                 await channel.delete();
-                await delay(5000);
+                await delay(1500);
             } catch { }
         }
         if (channels.has(logChannelId)) {
@@ -231,7 +231,7 @@ async function startCloningProcess(message, sourceGuild, targetGuild, opts) {
         for (const [id, role] of roles) {
             try {
                 await role.delete();
-                await delay(5000);
+                await delay(1500);
             } catch { }
         }
     }
@@ -241,7 +241,7 @@ async function startCloningProcess(message, sourceGuild, targetGuild, opts) {
         for (const [id, emoji] of emojis) {
             try {
                 await emoji.delete();
-                await delay(5000);
+                await delay(1500);
             } catch { }
         }
     }
@@ -273,7 +273,7 @@ async function startCloningProcess(message, sourceGuild, targetGuild, opts) {
                 });
                 roleMapping.set(role.id, newRole.id);
                 await sendLog(`Created Role: ${role.name}`);
-                await delay(5000);
+                await delay(1500);
             } catch (e) {
                 console.error(e);
             }
@@ -286,8 +286,12 @@ async function startCloningProcess(message, sourceGuild, targetGuild, opts) {
             try {
                 await targetGuild.emojis.create({ attachment: emoji.url, name: emoji.name });
                 await sendLog(`Created Emoji: ${emoji.name}`);
-                await delay(5000);
+                await delay(1500);
             } catch (e) {
+                if (e.code === 30014 || String(e).includes('Maximum number of emojis reached')) {
+                    await sendLog("⚠️ Maximum emoji slots reached! Skipping remaining emojis...");
+                    break;
+                }
                 console.error(e);
             }
         }
@@ -327,7 +331,7 @@ async function startCloningProcess(message, sourceGuild, targetGuild, opts) {
                 });
                 categoryMapping.set(category.id, newCat.id);
                 await sendLog(`Created Category: ${category.name}`);
-                await delay(5000);
+                await delay(1500);
             } catch (e) {
                 console.error(e);
             }
@@ -350,7 +354,7 @@ async function startCloningProcess(message, sourceGuild, targetGuild, opts) {
                     permissionOverwrites: mapOverwrites(channel.permissionOverwrites.cache)
                 });
                 await sendLog(`Created Text Channel: ${channel.name}`);
-                await delay(5000);
+                await delay(1500);
             } catch (e) {
                 console.error(e);
             }
@@ -373,7 +377,7 @@ async function startCloningProcess(message, sourceGuild, targetGuild, opts) {
                     permissionOverwrites: mapOverwrites(channel.permissionOverwrites.cache)
                 });
                 await sendLog(`Created Voice Channel: ${channel.name}`);
-                await delay(5000);
+                await delay(1500);
             } catch (e) {
                 console.error(e);
             }
