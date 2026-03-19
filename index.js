@@ -5,7 +5,7 @@ console.log = origLog;
 
 process.removeAllListeners('warning');
 
-const { Client: BotClient, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionsBitField } = require('discord.js');
+const { Client: BotClient, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionsBitField, REST, Routes } = require('discord.js');
 const { Client: UserClient } = require('discord.js-selfbot-v13');
 
 const bot = new BotClient({
@@ -32,62 +32,118 @@ const reset = '\x1b[0m';
 
 console.clear();
 console.log(purple + `
- ██████╗  ██████╗ ██╗  ██╗██╗   ██╗     ██████╗██╗      ██████╗ ███╗   ██╗███████╗██████╗ 
- ██╔══██╗██╔═══██╗╚██╗██╔╝╚██╗ ██╔╝    ██╔════╝██║     ██╔═══██╗████╗  ██║██╔════╝██╔══██╗
- ██████╔╝██║   ██║ ╚███╔╝  ╚████╔╝     ██║     ██║     ██║   ██║██╔██╗ ██║█████╗  ██████╔╝
- ██╔══██╗██║   ██║ ██╔██╗   ╚██╔╝      ██║     ██║     ██║   ██║██║╚██╗██║██╔══╝  ██╔══██╗
- ██║  ██║╚██████╔╝██╔╝ ██╗   ██║       ╚██████╗███████╗╚██████╔╝██║ ╚████║███████╗██║  ██║
- ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝        ╚═════╝╚══════╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝
+ ██╗   ██╗███████╗██╗  ██╗██╗   ██╗
+ ██║   ██║██╔════╝╚██╗██╔╝╚██╗ ██╔╝
+ ██║   ██║█████╗   ╚███╔╝  ╚████╔╝ 
+ ╚██╗ ██╔╝██╔══╝   ██╔██╗   ╚██╔╝  
+  ╚████╔╝ ███████╗██╔╝ ██╗   ██║   
+   ╚═══╝  ╚══════╝╚═╝  ╚═╝   ╚═╝   
 ` + reset);
+
+// Slash Commands Register karne ka function
+async function registerSlashCommands() {
+    try {
+        const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
+
+        const commands = [
+            {
+                name: 'clone',
+                description: 'Clone a server',
+                options: [
+                    {
+                        name: 'source',
+                        description: 'Source server ID',
+                        type: 3,
+                        required: true
+                    },
+                    {
+                        name: 'target',
+                        description: 'Target server ID',
+                        type: 3,
+                        required: true
+                    }
+                ]
+            },
+            {
+                name: 'deleteallchannels',
+                description: 'Category ke saare channels delete karo'
+            },
+            {
+                name: 'deleterole',
+                description: 'Ek specific role delete karo',
+                options: [
+                    {
+                        name: 'role',
+                        description: 'Role ka naam ya ID',
+                        type: 3,
+                        required: true
+                    }
+                ]
+            }
+        ];
+
+        console.log(purple + 'Slash commands register ho rahe hain...' + reset);
+        await rest.put(
+            Routes.applicationCommands(bot.user.id),
+            { body: commands }
+        );
+        console.log(purple + 'Slash commands register ho gaye!' + reset);
+    } catch (error) {
+        console.error('Slash commands register error:', error);
+    }
+}
 
 bot.once('ready', () => {
     console.log(purple + `Bot logged in as ${bot.user.tag}` + reset);
+    registerSlashCommands();
 });
 
 userClient.once('ready', () => {
     console.log(purple + `User Client logged in as ${userClient.user.tag}` + reset);
 });
 
-// ==================== DELETE CHANNELS COMMAND ====================
-bot.on('messageCreate', async (message) => {
-    if (message.author.bot || message.author.id !== ALLOWED_ID) return;
+// Slash Commands handle karne ka function
+bot.on('interactionCreate', async (interaction) => {
+    if (!interaction.isCommand()) return;
+    if (interaction.user.id !== ALLOWED_ID) {
+        return interaction.reply({ content: '❌ **Tujhe permission nahi hai behenchod!**', ephemeral: true });
+    }
 
-    // Existing !clone command
-    if (message.content.startsWith('!clone')) {
-        const args = message.content.split(' ');
-        if (args.length < 3) {
-            return message.reply("Usage: !clone <source_server_id> <target_server_id>");
-        }
+    const { commandName, options } = interaction;
 
-        const sourceId = args[1];
-        const targetId = args[2];
+    // ==================== !clone ka slash version ====================
+    if (commandName === 'clone') {
+        await interaction.deferReply();
+
+        const sourceId = options.getString('source');
+        const targetId = options.getString('target');
 
         if (sourceId === targetId) {
-            return message.reply("Source and Target server IDs cannot be the same.");
+            return interaction.editReply("Source and Target server IDs cannot be the same.");
         }
 
         const sourceGuild = userClient.guilds.cache.get(sourceId);
         if (!sourceGuild) {
-            return message.reply("I can't access the source server from the user account. Make sure the user account is in that server.");
+            return interaction.editReply("I can't access the source server from the user account. Make sure the user account is in that server.");
         }
 
         const targetGuild = bot.guilds.cache.get(targetId);
         if (!targetGuild) {
-            return message.reply("The bot is not in the target server.");
+            return interaction.editReply("The bot is not in the target server.");
         }
 
         const botMember = await targetGuild.members.fetch(bot.user.id);
         if (!botMember.permissions.has('Administrator')) {
-            return message.reply("The bot does not have Administrator permission in the target server. Please grant Administrator permission to the bot role.");
+            return interaction.editReply("The bot does not have Administrator permission in the target server. Please grant Administrator permission to the bot role.");
         }
 
         const highestRolePos = Math.max(...targetGuild.roles.cache.map(r => r.position));
         if (botMember.roles.highest.position < highestRolePos) {
-            return message.reply("The bot's role is not at the top of the role list. Please go to Server Settings -> Roles, and drag the bot's role to the very top.");
+            return interaction.editReply("The bot's role is not at the top of the role list. Please go to Server Settings -> Roles, and drag the bot's role to the very top.");
         }
 
         const embed = new EmbedBuilder()
-            .setTitle("Roxy Cloner V2 Setup")
+            .setTitle("VEXY Cloner V2 Setup")
             .setDescription(`Cloning from **${sourceGuild.name}** to **${targetGuild.name}**\n\n` +
                 `**1.** Delete Existing Channels\n` +
                 `**2.** Delete Existing Roles\n` +
@@ -97,7 +153,7 @@ bot.on('messageCreate', async (message) => {
                 `**6.** Clone Emojis`)
             .setColor('#800080');
 
-        let options = {
+        let optionsObj = {
             1: false,
             2: false,
             3: false,
@@ -113,7 +169,7 @@ bot.on('messageCreate', async (message) => {
                     new ButtonBuilder()
                         .setCustomId(`opt_${i}`)
                         .setLabel(`${i}`)
-                        .setStyle(options[i] ? ButtonStyle.Success : ButtonStyle.Danger)
+                        .setStyle(optionsObj[i] ? ButtonStyle.Success : ButtonStyle.Danger)
                 );
             }
             return row;
@@ -125,28 +181,28 @@ bot.on('messageCreate', async (message) => {
                 new ButtonBuilder()
                     .setCustomId('opt_5')
                     .setLabel('5')
-                    .setStyle(options[5] ? ButtonStyle.Success : ButtonStyle.Danger),
+                    .setStyle(optionsObj[5] ? ButtonStyle.Success : ButtonStyle.Danger),
                 new ButtonBuilder()
                     .setCustomId('opt_6')
                     .setLabel('6')
-                    .setStyle(options[6] ? ButtonStyle.Success : ButtonStyle.Danger),
+                    .setStyle(optionsObj[6] ? ButtonStyle.Success : ButtonStyle.Danger),
                 new ButtonBuilder()
                     .setCustomId('start_clone')
                     .setLabel('Start Cloning')
                     .setStyle(ButtonStyle.Primary)
             );
 
-        const replyMsgs = await message.channel.send({ embeds: [embed], components: [row1, row2] });
+        const replyMsgs = await interaction.editReply({ embeds: [embed], components: [row1, row2] });
 
         const collector = replyMsgs.createMessageComponentCollector({
-            filter: i => i.user.id === message.author.id,
+            filter: i => i.user.id === interaction.user.id,
             time: 300000
         });
 
         collector.on('collect', async i => {
             if (i.customId.startsWith('opt_')) {
                 const optNum = parseInt(i.customId.split('_')[1]);
-                options[optNum] = !options[optNum];
+                optionsObj[optNum] = !optionsObj[optNum];
 
                 const newRow1 = createRow(1, 4);
                 const newRow2 = new ActionRowBuilder()
@@ -154,11 +210,11 @@ bot.on('messageCreate', async (message) => {
                         new ButtonBuilder()
                             .setCustomId('opt_5')
                             .setLabel('5')
-                            .setStyle(options[5] ? ButtonStyle.Success : ButtonStyle.Danger),
+                            .setStyle(optionsObj[5] ? ButtonStyle.Success : ButtonStyle.Danger),
                         new ButtonBuilder()
                             .setCustomId('opt_6')
                             .setLabel('6')
-                            .setStyle(options[6] ? ButtonStyle.Success : ButtonStyle.Danger),
+                            .setStyle(optionsObj[6] ? ButtonStyle.Success : ButtonStyle.Danger),
                         new ButtonBuilder()
                             .setCustomId('start_clone')
                             .setLabel('Start Cloning')
@@ -169,9 +225,9 @@ bot.on('messageCreate', async (message) => {
             } else if (i.customId === 'start_clone') {
                 collector.stop('started');
                 await i.update({ components: [] });
-                await message.channel.send("Starting cloning process in 3 seconds...");
+                await interaction.followUp("Starting cloning process in 3 seconds...");
                 await delay(3000);
-                startCloningProcess(message, sourceGuild, targetGuild, options);
+                startCloningProcess(interaction, sourceGuild, targetGuild, optionsObj);
             }
         });
 
@@ -182,45 +238,39 @@ bot.on('messageCreate', async (message) => {
         });
     }
 
-    // ==================== NEW DELETE CHANNELS COMMAND ====================
-    else if (message.content === '!deleteallchannels') {
+    // ==================== /deleteallchannels ====================
+    else if (commandName === 'deleteallchannels') {
+        await interaction.deferReply();
+
         try {
-            // Admin permission check
-            if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-                return message.reply('❌ **Tere paas ADMINISTRATOR permission nahi hai behenchod!**');
+            if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return interaction.editReply('❌ **Tere paas ADMINISTRATOR permission nahi hai behenchod!**');
             }
 
-            const guild = message.guild;
-            
-            // Saari categories le
-            const categories = guild.channels.cache
-                .filter(c => c.type === 4) // Category channels
-                .map(c => c);
+            const guild = interaction.guild;
+            const categories = guild.channels.cache.filter(c => c.type === 4).map(c => c);
 
             if (categories.length === 0) {
-                return message.reply('❌ **Koi category nahi hai! Pehle category bana madarchod.**');
+                return interaction.editReply('❌ **Koi category nahi hai! Pehle category bana madarchod.**');
             }
 
-            // Category list bana
             let categoryList = '';
             categories.forEach((cat, index) => {
                 const channelCount = cat.children.cache.size;
                 categoryList += `**${index + 1}.** ${cat.name} - ${channelCount} channels\n`;
             });
 
-            // Embed banake category dikha
             const embed = new EmbedBuilder()
                 .setTitle('🗑️ **CATEGORY SELECT KAR**')
                 .setDescription(`Kaunsi category ke saare channels delete karne hain?\n\n${categoryList}\n\n📝 **1 se ${categories.length} tak number likh**`)
                 .setColor(0xFF0000)
                 .setFooter({ text: '60 second mein number dal vrna cancel' });
 
-            await message.reply({ embeds: [embed] });
+            await interaction.editReply({ embeds: [embed] });
 
-            // User se response lene ke liye filter
-            const filter = m => m.author.id === message.author.id;
+            const filter = m => m.author.id === interaction.user.id;
             
-            const collected = await message.channel.awaitMessages({
+            const collected = await interaction.channel.awaitMessages({
                 filter,
                 max: 1,
                 time: 60000,
@@ -231,24 +281,23 @@ bot.on('messageCreate', async (message) => {
             const choice = parseInt(response.content) - 1;
 
             if (isNaN(choice) || choice < 0 || choice >= categories.length) {
-                return message.reply('❌ **Galat number! Command phir se chal.**');
+                return interaction.followUp('❌ **Galat number! Command phir se chal.**');
             }
 
             const selectedCategory = categories[choice];
             const channelsToDelete = selectedCategory.children.cache;
 
-            // Confirmation le
             const confirmEmbed = new EmbedBuilder()
                 .setTitle('⚠️ **CONFIRM KAR**')
                 .setDescription(`Category **${selectedCategory.name}** ke **${channelsToDelete.size} channels** delete karne ka confirm hai?\n\n✅ \`yes\` likh confirm karne ke liye\n❌ \`no\` likh cancel karne ke liye`)
                 .setColor(0xFFAA00);
 
-            await message.reply({ embeds: [confirmEmbed] });
+            await interaction.followUp({ embeds: [confirmEmbed] });
 
-            const confirmFilter = m => m.author.id === message.author.id && 
+            const confirmFilter = m => m.author.id === interaction.user.id && 
                                      ['yes', 'no', 'y', 'n'].includes(m.content.toLowerCase());
             
-            const confirmCollected = await message.channel.awaitMessages({
+            const confirmCollected = await interaction.channel.awaitMessages({
                 filter: confirmFilter,
                 max: 1,
                 time: 30000,
@@ -258,8 +307,7 @@ bot.on('messageCreate', async (message) => {
             const confirmResponse = confirmCollected.first();
             
             if (['yes', 'y'].includes(confirmResponse.content.toLowerCase())) {
-                // Delete karne ka process start
-                const statusMsg = await message.reply('🔄 **Delete ho rahe hain...**');
+                const statusMsg = await interaction.followUp('🔄 **Delete ho rahe hain...**');
                 
                 let deleted = 0;
                 let failed = 0;
@@ -268,7 +316,6 @@ bot.on('messageCreate', async (message) => {
                     try {
                         await channel.delete();
                         deleted++;
-                        // Rate limit se bachne ke liye delay
                         await delay(500);
                     } catch (error) {
                         console.error(`Channel delete failed: ${error}`);
@@ -276,7 +323,6 @@ bot.on('messageCreate', async (message) => {
                     }
                 }
 
-                // Final result
                 const resultEmbed = new EmbedBuilder()
                     .setTitle('✅ **KAAM HO GAYA!**')
                     .setDescription(`Category: **${selectedCategory.name}**\n` +
@@ -287,22 +333,121 @@ bot.on('messageCreate', async (message) => {
                 await statusMsg.edit({ embeds: [resultEmbed] });
                 
             } else {
-                await message.reply('❌ **Cancel kar diya!**');
+                await interaction.followUp('❌ **Cancel kar diya!**');
             }
 
         } catch (error) {
             if (error.message === 'time') {
-                return message.reply('⏰ **Time over! Phir se command chal.**');
+                return interaction.followUp('⏰ **Time over! Phir se command chal.**');
             }
             console.error('Delete channels error:', error);
-            return message.reply(`❌ **Error:** ${error.message}`);
+            return interaction.followUp(`❌ **Error:** ${error.message}`);
+        }
+    }
+
+    // ==================== /deleterole ====================
+    else if (commandName === 'deleterole') {
+        await interaction.deferReply();
+
+        try {
+            if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return interaction.editReply('❌ **Tere paas ADMINISTRATOR permission nahi hai behenchod!**');
+            }
+
+            const roleInput = options.getString('role');
+            const guild = interaction.guild;
+
+            // Role find karo - ID se ya name se
+            let role = null;
+            
+            // Pehle ID se try karo
+            if (roleInput.match(/^[0-9]{17,19}$/)) {
+                role = guild.roles.cache.get(roleInput);
+            }
+            
+            // Agar ID se nahi mila toh name se search karo
+            if (!role) {
+                role = guild.roles.cache.find(r => r.name.toLowerCase() === roleInput.toLowerCase());
+            }
+
+            // Agar fir bhi nahi mila toh partial match try karo
+            if (!role) {
+                role = guild.roles.cache.find(r => r.name.toLowerCase().includes(roleInput.toLowerCase()));
+            }
+
+            if (!role) {
+                return interaction.editReply('❌ **Role nahi mila behenchod! Sahi naam ya ID daal.**');
+            }
+
+            // Check karo ki role delete ho sakta hai ya nahi
+            if (role.name === '@everyone') {
+                return interaction.editReply('❌ **@everyone role delete nahi kar sakta madarchod!**');
+            }
+
+            if (role.managed) {
+                return interaction.editReply('❌ **Ye bot/admin managed role hai, delete nahi kar sakta!**');
+            }
+
+            if (!role.editable) {
+                return interaction.editReply('❌ **Ye role delete nahi kar sakta! Role position check kar.**');
+            }
+
+            // Confirmation le
+            const confirmEmbed = new EmbedBuilder()
+                .setTitle('⚠️ **CONFIRM KAR**')
+                .setDescription(`Role **${role.name}** (ID: ${role.id}) delete karne ka confirm hai?\n\n✅ \`yes\` likh confirm karne ke liye\n❌ \`no\` likh cancel karne ke liye`)
+                .setColor(0xFFAA00);
+
+            await interaction.editReply({ embeds: [confirmEmbed] });
+
+            const filter = m => m.author.id === interaction.user.id && 
+                               ['yes', 'no', 'y', 'n'].includes(m.content.toLowerCase());
+            
+            const collected = await interaction.channel.awaitMessages({
+                filter,
+                max: 1,
+                time: 30000,
+                errors: ['time']
+            });
+
+            const response = collected.first();
+            
+            if (['yes', 'y'].includes(response.content.toLowerCase())) {
+                // Role delete karo
+                await role.delete();
+                
+                const resultEmbed = new EmbedBuilder()
+                    .setTitle('✅ **ROLE DELETE HO GAYA!**')
+                    .setDescription(`Role **${role.name}** successfully delete ho gaya!`)
+                    .setColor(0x00FF00);
+
+                await interaction.followUp({ embeds: [resultEmbed] });
+                
+            } else {
+                await interaction.followUp('❌ **Cancel kar diya!**');
+            }
+
+        } catch (error) {
+            if (error.message === 'time') {
+                return interaction.followUp('⏰ **Time over! Phir se command chal.**');
+            }
+            console.error('Delete role error:', error);
+            return interaction.followUp(`❌ **Error:** ${error.message}`);
         }
     }
 });
 
-async function startCloningProcess(message, sourceGuild, targetGuild, opts) {
-    let logChannelId = message.channel.id;
-    let logGuildId = message.guild?.id;
+// Purana message command bhi rakh sakte ho agar chahte ho, ya hata do
+bot.on('messageCreate', async (message) => {
+    if (message.author.bot || message.author.id !== ALLOWED_ID) return;
+    
+    // Agar sirf slash commands chahiye toh yeh puri function hata do
+    // Ya rakhna chahte ho toh yahan code daalo
+});
+
+async function startCloningProcess(interaction, sourceGuild, targetGuild, opts) {
+    let logChannelId = interaction.channel.id;
+    let logGuildId = interaction.guild?.id;
 
     async function sendLog(text) {
         try {
@@ -311,13 +456,13 @@ async function startCloningProcess(message, sourceGuild, targetGuild, opts) {
                 if (currentChannel) {
                     await currentChannel.send({ content: text }).catch(() => { });
                 } else {
-                    await message.author.send(`[Cloning Log] ${text}`).catch(() => { });
+                    await interaction.user.send(`[Cloning Log] ${text}`).catch(() => { });
                 }
             } else {
                 if (currentChannel) {
                     await currentChannel.send({ content: text }).catch(() => { });
                 } else {
-                    await message.author.send(`[Cloning Log] ${text}`).catch(() => { });
+                    await interaction.user.send(`[Cloning Log] ${text}`).catch(() => { });
                 }
             }
         } catch (e) {
@@ -339,7 +484,7 @@ async function startCloningProcess(message, sourceGuild, targetGuild, opts) {
         if (channels.has(logChannelId)) {
             const currentChannel = bot.channels.cache.get(logChannelId);
             if (currentChannel && currentChannel.deletable) {
-                await message.author.send("Channel deleted. Continuing logs here...").catch(() => { });
+                await interaction.user.send("Channel deleted. Continuing logs here...").catch(() => { });
                 await currentChannel.delete().catch(() => { });
             }
         }
@@ -376,126 +521,4 @@ async function startCloningProcess(message, sourceGuild, targetGuild, opts) {
             roleMapping.set(sourceEveryone.id, targetEveryone.id);
         }
 
-        const rolesToClone = Array.from(sourceGuild.roles.cache.values())
-            .filter(role => role.name !== '@everyone' && !role.managed)
-            .sort((a, b) => b.position - a.position);
-
-        for (const role of rolesToClone) {
-            try {
-                const newRole = await targetGuild.roles.create({
-                    name: role.name,
-                    color: role.color,
-                    hoist: role.hoist,
-                    permissions: role.permissions.bitfield.toString(),
-                    mentionable: role.mentionable,
-                    reason: 'Cloning'
-                });
-                roleMapping.set(role.id, newRole.id);
-                await sendLog(`Created Role: ${role.name}`);
-                await delay(1500);
-            } catch (e) {
-                await sendLog(`⚠️ Failed to create role: ${role.name}`);
-            }
-        }
-    }
-
-    const mapOverwrites = (overwrites) => {
-        const newOverwrites = [];
-        for (const ow of overwrites.values()) {
-            if (ow.type === 'role' || ow.type === 0) {
-                const targetRoleId = roleMapping.get(ow.id);
-                if (targetRoleId) {
-                    newOverwrites.push({
-                        id: targetRoleId,
-                        allow: ow.allow.bitfield.toString(),
-                        deny: ow.deny.bitfield.toString(),
-                    });
-                }
-            }
-        }
-        return newOverwrites;
-    };
-
-    if (opts[4]) {
-        const categoryMapping = new Map();
-
-        const categories = Array.from(sourceGuild.channels.cache.values())
-            .filter(ch => ch.type === 'GUILD_CATEGORY' || ch.type === 4)
-            .sort((a, b) => a.position - b.position);
-
-        for (const category of categories) {
-            try {
-                const newCat = await targetGuild.channels.create({
-                    name: category.name,
-                    type: 4,
-                    position: category.position,
-                    permissionOverwrites: mapOverwrites(category.permissionOverwrites.cache)
-                });
-                categoryMapping.set(category.id, newCat.id);
-                await sendLog(`Created Category: ${category.name}`);
-                await delay(1500);
-            } catch (e) {
-                await sendLog(`⚠️ Failed to create category: ${category.name}`);
-            }
-        }
-
-        const textChannels = Array.from(sourceGuild.channels.cache.values())
-            .filter(ch => ch.type === 'GUILD_TEXT' || ch.type === 0 || ch.type === 'GUILD_NEWS' || ch.type === 5)
-            .sort((a, b) => a.position - b.position);
-
-        for (const channel of textChannels) {
-            try {
-                const parentId = channel.parentId ? categoryMapping.get(channel.parentId) : null;
-                await targetGuild.channels.create({
-                    name: channel.name,
-                    type: 0,
-                    parent: parentId,
-                    topic: channel.topic || '',
-                    nsfw: channel.nsfw || false,
-                    position: channel.position,
-                    permissionOverwrites: mapOverwrites(channel.permissionOverwrites.cache)
-                });
-                await sendLog(`Created Text Channel: ${channel.name}`);
-                await delay(1500);
-            } catch (e) {
-                await sendLog(`⚠️ Failed to create text channel: ${channel.name}`);
-            }
-        }
-
-        const voiceChannels = Array.from(sourceGuild.channels.cache.values())
-            .filter(ch => ch.type === 'GUILD_VOICE' || ch.type === 2)
-            .sort((a, b) => a.position - b.position);
-
-        for (const channel of voiceChannels) {
-            try {
-                const parentId = channel.parentId ? categoryMapping.get(channel.parentId) : null;
-                await targetGuild.channels.create({
-                    name: channel.name,
-                    type: 2,
-                    parent: parentId,
-                    bitrate: Math.min(channel.bitrate || 64000, targetGuild.maximumBitrate || 96000),
-                    userLimit: channel.userLimit || 0,
-                    position: channel.position,
-                    permissionOverwrites: mapOverwrites(channel.permissionOverwrites.cache)
-                });
-                await sendLog(`Created Voice Channel: ${channel.name}`);
-                await delay(1500);
-            } catch (e) {
-                await sendLog(`⚠️ Failed to create voice channel: ${channel.name}`);
-            }
-        }
-    }
-
-    if (opts[6]) {
-        let maxEmojis = 50;
-        if (targetGuild.premiumTier === 1) maxEmojis = 100;
-        else if (targetGuild.premiumTier === 2) maxEmojis = 150;
-        else if (targetGuild.premiumTier === 3) maxEmojis = 250;
-
-        const currentStatic = targetGuild.emojis.cache.filter(e => !e.animated).size;
-        const currentAnimated = targetGuild.emojis.cache.filter(e => e.animated).size;
-
-        const availableStatic = Math.max(0, maxEmojis - currentStatic);
-        const availableAnimated = Math.max(0, maxEmojis - currentAnimated);
-
-        const sourceStatic = Array.from(sourceGuild.emojis.cache.f
+        co
