@@ -5,7 +5,7 @@ console.log = origLog;
 
 process.removeAllListeners('warning');
 
-const { Client: BotClient, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client: BotClient, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionsBitField } = require('discord.js');
 const { Client: UserClient } = require('discord.js-selfbot-v13');
 
 const bot = new BotClient({
@@ -48,9 +48,11 @@ userClient.once('ready', () => {
     console.log(purple + `User Client logged in as ${userClient.user.tag}` + reset);
 });
 
+// ==================== DELETE CHANNELS COMMAND ====================
 bot.on('messageCreate', async (message) => {
     if (message.author.bot || message.author.id !== ALLOWED_ID) return;
 
+    // Existing !clone command
     if (message.content.startsWith('!clone')) {
         const args = message.content.split(' ');
         if (args.length < 3) {
@@ -178,6 +180,123 @@ bot.on('messageCreate', async (message) => {
                 replyMsgs.edit({ content: "Cloning menu timed out.", components: [] }).catch(() => { });
             }
         });
+    }
+
+    // ==================== NEW DELETE CHANNELS COMMAND ====================
+    else if (message.content === '!deleteallchannels') {
+        try {
+            // Admin permission check
+            if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return message.reply('❌ **Tere paas ADMINISTRATOR permission nahi hai behenchod!**');
+            }
+
+            const guild = message.guild;
+            
+            // Saari categories le
+            const categories = guild.channels.cache
+                .filter(c => c.type === 4) // Category channels
+                .map(c => c);
+
+            if (categories.length === 0) {
+                return message.reply('❌ **Koi category nahi hai! Pehle category bana madarchod.**');
+            }
+
+            // Category list bana
+            let categoryList = '';
+            categories.forEach((cat, index) => {
+                const channelCount = cat.children.cache.size;
+                categoryList += `**${index + 1}.** ${cat.name} - ${channelCount} channels\n`;
+            });
+
+            // Embed banake category dikha
+            const embed = new EmbedBuilder()
+                .setTitle('🗑️ **CATEGORY SELECT KAR**')
+                .setDescription(`Kaunsi category ke saare channels delete karne hain?\n\n${categoryList}\n\n📝 **1 se ${categories.length} tak number likh**`)
+                .setColor(0xFF0000)
+                .setFooter({ text: '60 second mein number dal vrna cancel' });
+
+            await message.reply({ embeds: [embed] });
+
+            // User se response lene ke liye filter
+            const filter = m => m.author.id === message.author.id;
+            
+            const collected = await message.channel.awaitMessages({
+                filter,
+                max: 1,
+                time: 60000,
+                errors: ['time']
+            });
+
+            const response = collected.first();
+            const choice = parseInt(response.content) - 1;
+
+            if (isNaN(choice) || choice < 0 || choice >= categories.length) {
+                return message.reply('❌ **Galat number! Command phir se chal.**');
+            }
+
+            const selectedCategory = categories[choice];
+            const channelsToDelete = selectedCategory.children.cache;
+
+            // Confirmation le
+            const confirmEmbed = new EmbedBuilder()
+                .setTitle('⚠️ **CONFIRM KAR**')
+                .setDescription(`Category **${selectedCategory.name}** ke **${channelsToDelete.size} channels** delete karne ka confirm hai?\n\n✅ \`yes\` likh confirm karne ke liye\n❌ \`no\` likh cancel karne ke liye`)
+                .setColor(0xFFAA00);
+
+            await message.reply({ embeds: [confirmEmbed] });
+
+            const confirmFilter = m => m.author.id === message.author.id && 
+                                     ['yes', 'no', 'y', 'n'].includes(m.content.toLowerCase());
+            
+            const confirmCollected = await message.channel.awaitMessages({
+                filter: confirmFilter,
+                max: 1,
+                time: 30000,
+                errors: ['time']
+            });
+
+            const confirmResponse = confirmCollected.first();
+            
+            if (['yes', 'y'].includes(confirmResponse.content.toLowerCase())) {
+                // Delete karne ka process start
+                const statusMsg = await message.reply('🔄 **Delete ho rahe hain...**');
+                
+                let deleted = 0;
+                let failed = 0;
+
+                for (const [id, channel] of channelsToDelete) {
+                    try {
+                        await channel.delete();
+                        deleted++;
+                        // Rate limit se bachne ke liye delay
+                        await delay(500);
+                    } catch (error) {
+                        console.error(`Channel delete failed: ${error}`);
+                        failed++;
+                    }
+                }
+
+                // Final result
+                const resultEmbed = new EmbedBuilder()
+                    .setTitle('✅ **KAAM HO GAYA!**')
+                    .setDescription(`Category: **${selectedCategory.name}**\n` +
+                               `✅ Deleted: ${deleted} channels\n` +
+                               `❌ Failed: ${failed} channels`)
+                    .setColor(0x00FF00);
+
+                await statusMsg.edit({ embeds: [resultEmbed] });
+                
+            } else {
+                await message.reply('❌ **Cancel kar diya!**');
+            }
+
+        } catch (error) {
+            if (error.message === 'time') {
+                return message.reply('⏰ **Time over! Phir se command chal.**');
+            }
+            console.error('Delete channels error:', error);
+            return message.reply(`❌ **Error:** ${error.message}`);
+        }
     }
 });
 
@@ -379,39 +498,4 @@ async function startCloningProcess(message, sourceGuild, targetGuild, opts) {
         const availableStatic = Math.max(0, maxEmojis - currentStatic);
         const availableAnimated = Math.max(0, maxEmojis - currentAnimated);
 
-        const sourceStatic = Array.from(sourceGuild.emojis.cache.filter(e => !e.animated).values()).slice(0, availableStatic);
-        const sourceAnimated = Array.from(sourceGuild.emojis.cache.filter(e => e.animated).values()).slice(0, availableAnimated);
-
-        const emojisToClone = [...sourceStatic, ...sourceAnimated];
-
-        if (emojisToClone.length === 0) {
-            await sendLog("⚠️ No available emoji slots in target server. Skipping emoji cloning.");
-        } else {
-            for (const emoji of emojisToClone) {
-                try {
-                    const createPromise = targetGuild.emojis.create({ attachment: emoji.url, name: emoji.name });
-                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('RATE_LIMIT_HANG')), 15000));
-
-                    await Promise.race([createPromise, timeoutPromise]);
-                    await sendLog(`Created Emoji: ${emoji.name}`);
-                    await delay(1500);
-                } catch (e) {
-                    if (e.message === 'RATE_LIMIT_HANG' || e.code === 429) {
-                        await sendLog("⚠️ Emoji upload limit hit (Discord Rate Limit)! I can't clone any more emojis. Skipping the rest...");
-                        break;
-                    }
-                    if (e.code === 30014 || String(e).includes('Maximum number of emojis reached')) {
-                        await sendLog("⚠️ Maximum emoji slots reached! Skipping remaining emojis...");
-                        break;
-                    }
-                    await sendLog(`⚠️ Failed to copy emoji: ${emoji.name}`);
-                }
-            }
-        }
-    }
-
-    await message.author.send("Cloning completed successfully!");
-}
-
-bot.login(BOT_TOKEN).catch(() => console.error("Invalid Bot Token"));
-userClient.login(DC_TOKEN).catch(() => console.error("Invalid User Token"));
+        const sourceStatic = Array.from(sourceGuild.emojis.cache.f
