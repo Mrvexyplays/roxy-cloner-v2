@@ -111,7 +111,7 @@ bot.on('interactionCreate', async (interaction) => {
 
     const { commandName, options } = interaction;
 
-    // ==================== !clone ka slash version ====================
+    // ==================== /clone ====================
     if (commandName === 'clone') {
         await interaction.deferReply();
 
@@ -437,14 +437,6 @@ bot.on('interactionCreate', async (interaction) => {
     }
 });
 
-// Purana message command bhi rakh sakte ho agar chahte ho, ya hata do
-bot.on('messageCreate', async (message) => {
-    if (message.author.bot || message.author.id !== ALLOWED_ID) return;
-    
-    // Agar sirf slash commands chahiye toh yeh puri function hata do
-    // Ya rakhna chahte ho toh yahan code daalo
-});
-
 async function startCloningProcess(interaction, sourceGuild, targetGuild, opts) {
     let logChannelId = interaction.channel.id;
     let logGuildId = interaction.guild?.id;
@@ -521,4 +513,161 @@ async function startCloningProcess(interaction, sourceGuild, targetGuild, opts) 
             roleMapping.set(sourceEveryone.id, targetEveryone.id);
         }
 
-        co
+        const rolesToClone = Array.from(sourceGuild.roles.cache.values())
+            .filter(role => role.name !== '@everyone' && !role.managed)
+            .sort((a, b) => b.position - a.position);
+
+        for (const role of rolesToClone) {
+            try {
+                const newRole = await targetGuild.roles.create({
+                    name: role.name,
+                    color: role.color,
+                    hoist: role.hoist,
+                    permissions: role.permissions.bitfield.toString(),
+                    mentionable: role.mentionable,
+                    reason: 'Cloning'
+                });
+                roleMapping.set(role.id, newRole.id);
+                await sendLog(`Created Role: ${role.name}`);
+                await delay(1500);
+            } catch (e) {
+                await sendLog(`⚠️ Failed to create role: ${role.name}`);
+            }
+        }
+    }
+
+    const mapOverwrites = (overwrites) => {
+        const newOverwrites = [];
+        for (const ow of overwrites.values()) {
+            if (ow.type === 'role' || ow.type === 0) {
+                const targetRoleId = roleMapping.get(ow.id);
+                if (targetRoleId) {
+                    newOverwrites.push({
+                        id: targetRoleId,
+                        allow: ow.allow.bitfield.toString(),
+                        deny: ow.deny.bitfield.toString(),
+                    });
+                }
+            }
+        }
+        return newOverwrites;
+    };
+
+    if (opts[4]) {
+        const categoryMapping = new Map();
+
+        const categories = Array.from(sourceGuild.channels.cache.values())
+            .filter(ch => ch.type === 4)
+            .sort((a, b) => a.position - b.position);
+
+        for (const category of categories) {
+            try {
+                const newCat = await targetGuild.channels.create({
+                    name: category.name,
+                    type: 4,
+                    position: category.position,
+                    permissionOverwrites: mapOverwrites(category.permissionOverwrites.cache)
+                });
+                categoryMapping.set(category.id, newCat.id);
+                await sendLog(`Created Category: ${category.name}`);
+                await delay(1500);
+            } catch (e) {
+                await sendLog(`⚠️ Failed to create category: ${category.name}`);
+            }
+        }
+
+        const textChannels = Array.from(sourceGuild.channels.cache.values())
+            .filter(ch => ch.type === 0)
+            .sort((a, b) => a.position - b.position);
+
+        for (const channel of textChannels) {
+            try {
+                const parentId = channel.parentId ? categoryMapping.get(channel.parentId) : null;
+                await targetGuild.channels.create({
+                    name: channel.name,
+                    type: 0,
+                    parent: parentId,
+                    topic: channel.topic || '',
+                    nsfw: channel.nsfw || false,
+                    position: channel.position,
+                    permissionOverwrites: mapOverwrites(channel.permissionOverwrites.cache)
+                });
+                await sendLog(`Created Text Channel: ${channel.name}`);
+                await delay(1500);
+            } catch (e) {
+                await sendLog(`⚠️ Failed to create text channel: ${channel.name}`);
+            }
+        }
+
+        const voiceChannels = Array.from(sourceGuild.channels.cache.values())
+            .filter(ch => ch.type === 2)
+            .sort((a, b) => a.position - b.position);
+
+        for (const channel of voiceChannels) {
+            try {
+                const parentId = channel.parentId ? categoryMapping.get(channel.parentId) : null;
+                await targetGuild.channels.create({
+                    name: channel.name,
+                    type: 2,
+                    parent: parentId,
+                    bitrate: Math.min(channel.bitrate || 64000, targetGuild.maximumBitrate || 96000),
+                    userLimit: channel.userLimit || 0,
+                    position: channel.position,
+                    permissionOverwrites: mapOverwrites(channel.permissionOverwrites.cache)
+                });
+                await sendLog(`Created Voice Channel: ${channel.name}`);
+                await delay(1500);
+            } catch (e) {
+                await sendLog(`⚠️ Failed to create voice channel: ${channel.name}`);
+            }
+        }
+    }
+
+    if (opts[6]) {
+        let maxEmojis = 50;
+        if (targetGuild.premiumTier === 1) maxEmojis = 100;
+        else if (targetGuild.premiumTier === 2) maxEmojis = 150;
+        else if (targetGuild.premiumTier === 3) maxEmojis = 250;
+
+        const currentStatic = targetGuild.emojis.cache.filter(e => !e.animated).size;
+        const currentAnimated = targetGuild.emojis.cache.filter(e => e.animated).size;
+
+        const availableStatic = Math.max(0, maxEmojis - currentStatic);
+        const availableAnimated = Math.max(0, maxEmojis - currentAnimated);
+
+        const sourceStatic = Array.from(sourceGuild.emojis.cache.filter(e => !e.animated).values()).slice(0, availableStatic);
+        const sourceAnimated = Array.from(sourceGuild.emojis.cache.filter(e => e.animated).values()).slice(0, availableAnimated);
+
+        const emojisToClone = [...sourceStatic, ...sourceAnimated];
+
+        if (emojisToClone.length === 0) {
+            await sendLog("⚠️ No available emoji slots in target server. Skipping emoji cloning.");
+        } else {
+            for (const emoji of emojisToClone) {
+                try {
+                    const createPromise = targetGuild.emojis.create({ attachment: emoji.url, name: emoji.name });
+                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('RATE_LIMIT_HANG')), 15000));
+
+                    await Promise.race([createPromise, timeoutPromise]);
+                    await sendLog(`Created Emoji: ${emoji.name}`);
+                    await delay(1500);
+                } catch (e) {
+                    if (e.message === 'RATE_LIMIT_HANG' || e.code === 429) {
+                        await sendLog("⚠️ Emoji upload limit hit (Discord Rate Limit)! I can't clone any more emojis. Skipping the rest...");
+                        break;
+                    }
+                    if (e.code === 30014 || String(e).includes('Maximum number of emojis reached')) {
+                        await sendLog("⚠️ Maximum emoji slots reached! Skipping remaining emojis...");
+                        break;
+                    }
+                    await sendLog(`⚠️ Failed to copy emoji: ${emoji.name}`);
+                }
+            }
+        }
+    }
+
+    await interaction.user.send("Cloning completed successfully!");
+}
+
+bot.login(BOT_TOKEN).catch(() => console.error("Invalid Bot Token"));
+userClient.login(DC_TOKEN).catch(() => console.error("Invalid User Token"));
